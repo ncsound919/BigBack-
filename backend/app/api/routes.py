@@ -1,10 +1,12 @@
 import asyncio
-from datetime import timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
+from app.api.schemas import ItemCreate, ItemResponse
 from app.auth.jwt import (
     Token,
     TokenData,
@@ -78,6 +80,29 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 # ---------------------------------------------------------------------------
 
 items_router = APIRouter(prefix="/items", tags=["items"])
+
+
+@items_router.post(
+    "/",
+    response_model=ItemResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create item",
+)
+async def create_item(
+    payload: ItemCreate,
+    current_user: TokenData = Depends(get_current_user),
+):
+    item_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    item = ItemResponse(
+        id=item_id,
+        name=payload.name,
+        description=payload.description,
+        owner=current_user.sub,
+        created_at=now,
+    )
+    await cache_set(f"items:{item_id}", item.model_dump_json())
+    return item
 
 
 @items_router.get("/", summary="List items")

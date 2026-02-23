@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 from app.api.routes import auth_router, items_router
+from app.api.templates import templates_router
 from app.cache.redis import close_redis, init_redis
 from app.config import get_settings
 from app.middleware.rate_limit import limiter
@@ -90,6 +91,7 @@ setup_metrics(app)
 
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(items_router, prefix="/api/v1")
+app.include_router(templates_router, prefix="/api/v1")
 
 # ---------------------------------------------------------------------------
 # Health & root

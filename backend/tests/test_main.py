@@ -131,3 +131,74 @@ def test_delete_item_authenticated():
     token = _get_token(username="deluser", password="password1")
     response = client.delete("/api/v1/items/to-delete", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Items – create (POST)
+# ---------------------------------------------------------------------------
+
+def test_create_item_authenticated():
+    token = _get_token(username="createuser", password="password1")
+    response = client.post(
+        "/api/v1/items/",
+        json={"name": "new-item", "description": "A test item"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["name"] == "new-item"
+    assert data["description"] == "A test item"
+    assert data["owner"] == "createuser"
+    assert "id" in data
+
+
+def test_create_item_unauthenticated():
+    response = client.post("/api/v1/items/", json={"name": "x"})
+    assert response.status_code == 401
+
+
+def test_create_item_missing_name():
+    token = _get_token(username="noname", password="password1")
+    response = client.post(
+        "/api/v1/items/",
+        json={"description": "no name"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Templates
+# ---------------------------------------------------------------------------
+
+def test_list_templates():
+    response = client.get("/api/v1/templates/")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) >= 8
+    ids = [t["id"] for t in data]
+    assert "fastapi-crud" in ids
+    assert "redis-cache" in ids
+
+
+def test_list_templates_filter_by_framework():
+    response = client.get("/api/v1/templates/?framework=fastapi")
+    assert response.status_code == 200
+    data = response.json()
+    assert all(t["framework"] == "fastapi" for t in data)
+    assert len(data) >= 3
+
+
+def test_get_template_detail():
+    response = client.get("/api/v1/templates/fastapi-crud")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == "fastapi-crud"
+    assert "code" in data
+    assert len(data["code"]) > 50
+
+
+def test_get_template_not_found():
+    response = client.get("/api/v1/templates/nonexistent-template")
+    assert response.status_code == 404
