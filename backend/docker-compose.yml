@@ -16,6 +16,9 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # NOTE: The "deploy" section (including "replicas") is only honored in Docker Swarm mode
+    # (e.g. with "docker stack deploy"). Standard "docker-compose" will ignore this block and
+    # always run a single replica unless you explicitly scale, e.g. "docker-compose up --scale api=2".
     deploy:
       replicas: 2
 
