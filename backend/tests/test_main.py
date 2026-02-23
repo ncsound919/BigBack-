@@ -33,6 +33,15 @@ def mock_cache(monkeypatch):
     _cache_store.clear()
 
 
+@pytest.fixture(autouse=True)
+def reset_users():
+    import app.api.routes as routes_mod
+
+    routes_mod._USERS.clear()
+    yield
+    routes_mod._USERS.clear()
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -74,16 +83,16 @@ def test_register_and_login():
 
 
 def test_register_duplicate():
-    client.post("/api/v1/auth/register", json={"username": "dupuser", "password": "pass"})
-    response = client.post("/api/v1/auth/register", json={"username": "dupuser", "password": "pass"})
+    client.post("/api/v1/auth/register", json={"username": "dupuser", "password": "password1"})
+    response = client.post("/api/v1/auth/register", json={"username": "dupuser", "password": "password1"})
     assert response.status_code == 400
 
 
 def test_login_wrong_password():
-    client.post("/api/v1/auth/register", json={"username": "badpass", "password": "correct"})
+    client.post("/api/v1/auth/register", json={"username": "badpass", "password": "correct1"})
     response = client.post(
         "/api/v1/auth/token",
-        data={"username": "badpass", "password": "wrong"},
+        data={"username": "badpass", "password": "wrongpwd"},
     )
     assert response.status_code == 401
 
@@ -111,7 +120,7 @@ def test_list_items_authenticated():
 
 
 def test_get_item_authenticated():
-    token = _get_token(username="getitemuser", password="pass")
+    token = _get_token(username="getitemuser", password="password1")
     response = client.get("/api/v1/items/my-item", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     data = response.json()
@@ -119,6 +128,6 @@ def test_get_item_authenticated():
 
 
 def test_delete_item_authenticated():
-    token = _get_token(username="deluser", password="pass")
+    token = _get_token(username="deluser", password="password1")
     response = client.delete("/api/v1/items/to-delete", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 204

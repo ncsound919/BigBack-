@@ -1,8 +1,9 @@
+import asyncio
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth.jwt import (
     Token,
@@ -18,14 +19,20 @@ from app.middleware.rate_limit import limiter
 router = APIRouter()
 
 # ---------------------------------------------------------------------------
-# Fake in-memory user store – replace with a real DB model in production
+# Fake in-memory user store – replace with a real DB model in production.
+# asyncio.Lock provides safety for concurrent requests within a single
+# event loop, but NOT across multiple OS threads or worker processes.
+# With uvicorn --workers > 1, each process has its own _USERS copy, causing
+# registration inconsistencies. Migrate to the PostgreSQL db (db/database.py)
+# before enabling multiple workers.
 # ---------------------------------------------------------------------------
 _USERS: dict[str, str] = {}
+_USERS_LOCK = asyncio.Lock()
 
 
 class UserCreate(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
+    password: str = Field(min_length=8, max_length=128)
 
 
 class UserOut(BaseModel):
@@ -41,15 +48,21 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 @auth_router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(payload: UserCreate):
-    if payload.username in _USERS:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    _USERS[payload.username] = hash_password(payload.password)
+    async with _USERS_LOCK:
+        if payload.username in _USERS:
+            raise HTTPException(status_code=400, detail="Username already registered")
+        _USERS[payload.username] = hash_password(payload.password)
     return UserOut(username=payload.username)
 
 
 @auth_router.post("/token", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    hashed = _USERS.get(form_data.username)
+    # Read hashed password under the lock, then verify outside it.
+    # Verification is intentionally outside the lock: the hash is immutable
+    # once written (no password-change endpoint exists), so there is no
+    # TOCTOU risk and bcrypt.verify() need not block other requests.
+    async with _USERS_LOCK:
+        hashed = _USERS.get(form_data.username)
     if not hashed or not verify_password(form_data.password, hashed):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
