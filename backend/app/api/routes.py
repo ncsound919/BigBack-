@@ -1,0 +1,102 @@
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
+
+from app.auth.jwt import (
+    Token,
+    TokenData,
+    create_access_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
+from app.cache.redis import cache_delete, cache_get, cache_set
+from app.middleware.rate_limit import limiter
+
+router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Fake in-memory user store – replace with a real DB model in production
+# ---------------------------------------------------------------------------
+_USERS: dict[str, str] = {}
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+
+class UserOut(BaseModel):
+    username: str
+
+
+# ---------------------------------------------------------------------------
+# Auth endpoints
+# ---------------------------------------------------------------------------
+
+auth_router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@auth_router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+async def register(payload: UserCreate):
+    if payload.username in _USERS:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    _USERS[payload.username] = hash_password(payload.password)
+    return UserOut(username=payload.username)
+
+
+@auth_router.post("/token", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    hashed = _USERS.get(form_data.username)
+    if not hashed or not verify_password(form_data.password, hashed):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = create_access_token(subject=form_data.username, expires_delta=timedelta(minutes=30))
+    return Token(access_token=token)
+
+
+# ---------------------------------------------------------------------------
+# Items endpoints (protected + cached)
+# ---------------------------------------------------------------------------
+
+items_router = APIRouter(prefix="/items", tags=["items"])
+
+
+@items_router.get("/", summary="List items")
+@limiter.limit("100/minute")
+async def list_items(
+    request: Request,
+    current_user: TokenData = Depends(get_current_user),
+):
+    cached = await cache_get("items:all")
+    if cached:
+        return {"source": "cache", "data": cached}
+    data = ["item-1", "item-2", "item-3"]
+    await cache_set("items:all", str(data))
+    return {"source": "db", "data": data}
+
+
+@items_router.get("/{item_id}", summary="Get item by ID")
+async def get_item(
+    item_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
+    cached = await cache_get(f"items:{item_id}")
+    if cached:
+        return {"source": "cache", "item_id": item_id, "data": cached}
+    data = f"data-for-{item_id}"
+    await cache_set(f"items:{item_id}", data)
+    return {"source": "db", "item_id": item_id, "data": data}
+
+
+@items_router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_item(
+    item_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
+    await cache_delete(f"items:{item_id}")
