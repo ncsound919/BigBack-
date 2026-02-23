@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_window: str = "1 minute"
 
-    # CORS
-    cors_origins: list[str] = ["*"]
+    # CORS – override via environment variables with explicit origins
+    cors_origins: list[str] = []
 
     # Deployment
     replicas: int = 2
