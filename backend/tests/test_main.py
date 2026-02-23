@@ -23,6 +23,29 @@ async def _mock_cache_delete(key: str):
     _cache_store.pop(key, None)
 
 
+class _MockDBSession:
+    """Minimal async SQLAlchemy session mock – no real DB required."""
+
+    def add(self, obj):
+        pass
+
+    async def commit(self):
+        pass
+
+    async def refresh(self, obj):
+        pass
+
+    async def rollback(self):
+        pass
+
+    async def close(self):
+        pass
+
+
+async def _override_get_db():
+    yield _MockDBSession()
+
+
 @pytest.fixture(autouse=True)
 def mock_cache(monkeypatch):
     import app.api.routes as routes_mod
@@ -31,6 +54,15 @@ def mock_cache(monkeypatch):
     monkeypatch.setattr(routes_mod, "cache_set", _mock_cache_set)
     monkeypatch.setattr(routes_mod, "cache_delete", _mock_cache_delete)
     _cache_store.clear()
+
+
+@pytest.fixture(autouse=True)
+def override_db_dependency():
+    from app.db.database import get_db
+
+    app.dependency_overrides[get_db] = _override_get_db
+    yield
+    app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture(autouse=True)

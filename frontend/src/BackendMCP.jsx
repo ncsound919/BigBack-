@@ -287,18 +287,26 @@ export default function BackendMCP() {
     : jsonTab === "spec" ? outputJSON.spec
     : outputJSON;
 
-  const copyJSON = () => {
-    navigator.clipboard.writeText(JSON.stringify(outputJSON, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyJSON = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(outputJSON, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard unavailable (e.g. non-secure context) – no-op
+    }
   };
 
   const activeSnippet = CODE_SNIPPETS[config.framework] || "";
 
-  const copySnippet = () => {
-    navigator.clipboard.writeText(activeSnippet);
-    setSnippetCopied(true);
-    setTimeout(() => setSnippetCopied(false), 2000);
+  const copySnippet = async () => {
+    try {
+      await navigator.clipboard.writeText(activeSnippet);
+      setSnippetCopied(true);
+      setTimeout(() => setSnippetCopied(false), 2000);
+    } catch {
+      // clipboard unavailable – no-op
+    }
   };
 
   const savePreset = () => {
