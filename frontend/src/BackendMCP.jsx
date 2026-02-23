@@ -74,7 +74,63 @@ const PRESETS = [
     config: { ...DEFAULTS, framework:"gin",     database:"postgres", replicas:6, poolSize:50, rateLimit:1000, timeout:5 } },
   { id: "edge-minimal",  label: "Edge Minimal",   icon: "🌊",
     config: { ...DEFAULTS, framework:"express", database:"sqlite",   cache:"none", replicas:1, poolSize:2, features:{...DEFAULTS.features, prometheus:false, swagger:false, tracing:false, ci:false} } },
+  { id: "graphql-api",   label: "GraphQL API",    icon: "◈",
+    config: { ...DEFAULTS, framework:"nestjs",  database:"postgres", cache:"redis", replicas:3, poolSize:30, rateLimit:200, features:{...DEFAULTS.features, swagger:false, tracing:true, ci:true, tests:true} } },
+  { id: "event-stream",  label: "Event Streaming",icon: "📡",
+    config: { ...DEFAULTS, framework:"fastapi", database:"postgres", cache:"redis", replicas:4, poolSize:40, rateLimit:5000, cacheTTL:10, timeout:60, features:{...DEFAULTS.features, tracing:true, prometheus:true, compression:false} } },
+  { id: "cqrs",          label: "CQRS Service",   icon: "⇄",
+    config: { ...DEFAULTS, framework:"nestjs",  database:"postgres", cache:"redis", replicas:4, poolSize:30, rateLimit:800, timeout:20, features:{...DEFAULTS.features, tracing:true, ci:true, tests:true} } },
 ];
+
+const CODE_SNIPPETS = {
+  fastapi: `@router.post("/items", response_model=ItemResponse, status_code=201)
+async def create_item(
+    payload: ItemCreate,
+    current_user: TokenData = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    item = Item(id=str(uuid4()), name=payload.name,
+                owner=current_user.sub)
+    db.add(item); await db.commit()
+    return item`,
+  express: `router.post('/items', authMiddleware, async (req, res, next) => {
+  try {
+    const item = await Item.create(
+      { ...req.body, userId: req.user.id }
+    );
+    res.status(201).json(item);
+  } catch (err) { next(err); }
+});`,
+  nestjs: `@Post()
+@HttpCode(201)
+@UseGuards(JwtAuthGuard)
+create(
+  @Body() dto: CreateItemDto,
+  @CurrentUser() user: User,
+) {
+  return this.itemsService.create(dto, user.id);
+}`,
+  gin: `r.POST("/items", authMiddleware(), func(c *gin.Context) {
+  var input ItemInput
+  if err := c.ShouldBindJSON(&input); err != nil {
+    c.JSON(400, gin.H{"error": err.Error()}); return
+  }
+  item := Item{Name: input.Name,
+               OwnerID: c.GetString("userID")}
+  db.Create(&item)
+  c.JSON(201, item)
+})`,
+  django: `class ItemViewSet(ModelViewSet):
+  serializer_class = ItemSerializer
+  permission_classes = [IsAuthenticated]
+
+  def get_queryset(self):
+    return Item.objects.filter(
+      owner=self.request.user)
+
+  def perform_create(self, serializer):
+    serializer.save(owner=self.request.user)`,
+};
 
 // ── Micro-components ──────────────────────────────────────────────────────────
 
@@ -183,6 +239,7 @@ export default function BackendMCP() {
   const [showSave, setShowSave] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [jsonTab, setJsonTab] = useState("full"); // full | spec | meta
+  const [snippetCopied, setSnippetCopied] = useState(false);
 
   const update = useCallback((k, v) => { setConfig(c => ({...c,[k]:v})); setActivePreset(null); }, []);
   const updateF = useCallback((k, v) => { setConfig(c => ({...c,features:{...c.features,[k]:v}})); setActivePreset(null); }, []);
@@ -230,10 +287,26 @@ export default function BackendMCP() {
     : jsonTab === "spec" ? outputJSON.spec
     : outputJSON;
 
-  const copyJSON = () => {
-    navigator.clipboard.writeText(JSON.stringify(outputJSON, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyJSON = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(outputJSON, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard unavailable (e.g. non-secure context) – no-op
+    }
+  };
+
+  const activeSnippet = CODE_SNIPPETS[config.framework] || "";
+
+  const copySnippet = async () => {
+    try {
+      await navigator.clipboard.writeText(activeSnippet);
+      setSnippetCopied(true);
+      setTimeout(() => setSnippetCopied(false), 2000);
+    } catch {
+      // clipboard unavailable – no-op
+    }
   };
 
   const savePreset = () => {
@@ -476,6 +549,26 @@ export default function BackendMCP() {
                 background:"rgba(0,0,0,.35)", borderRadius:8, padding:12,
                 border:"1px solid rgba(255,255,255,.05)",
               }}>{JSON.stringify(displayJSON, null, 2)}</pre>
+            </Glass>
+
+            {/* Code Snippet */}
+            <Glass style={{ padding:"14px 14px" }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                <SectionLabel>Quick Snippet · {fw?.label}</SectionLabel>
+                <button className="copy-btn" onClick={copySnippet} style={{
+                  padding:"3px 10px", borderRadius:5, fontSize:10, fontFamily:"'JetBrains Mono',monospace",
+                  cursor:"pointer", fontWeight:600, letterSpacing:"0.04em", transition:"all .2s",
+                  background: snippetCopied?"rgba(104,211,145,.2)":"rgba(255,255,255,.05)",
+                  border: snippetCopied?"1px solid rgba(104,211,145,.4)":"1px solid rgba(255,255,255,.1)",
+                  color: snippetCopied?"#68d391":"rgba(255,255,255,.4)",
+                }}>{snippetCopied ? "✓ Copied" : "Copy"}</button>
+              </div>
+              <pre style={{
+                fontSize:10, fontFamily:"'JetBrains Mono',monospace", color:"rgba(167,139,250,.85)",
+                maxHeight:200, overflowY:"auto", lineHeight:1.65,
+                background:"rgba(0,0,0,.35)", borderRadius:8, padding:12,
+                border:"1px solid rgba(255,255,255,.05)", whiteSpace:"pre-wrap",
+              }}>{activeSnippet || "# No snippet available for this framework"}</pre>
             </Glass>
 
           </div>

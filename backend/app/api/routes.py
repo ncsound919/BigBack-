@@ -1,10 +1,14 @@
 import asyncio
-from datetime import timedelta
+import json
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.schemas import ItemCreate, ItemResponse
 from app.auth.jwt import (
     Token,
     TokenData,
@@ -14,6 +18,8 @@ from app.auth.jwt import (
     verify_password,
 )
 from app.cache.redis import cache_delete, cache_get, cache_set
+from app.db.database import get_db
+from app.db.models import Item
 from app.middleware.rate_limit import limiter
 
 router = APIRouter()
@@ -80,6 +86,33 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 items_router = APIRouter(prefix="/items", tags=["items"])
 
 
+@items_router.post(
+    "/",
+    response_model=ItemResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create item",
+)
+async def create_item(
+    payload: ItemCreate,
+    current_user: TokenData = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    item = Item(
+        id=str(uuid.uuid4()),
+        name=payload.name,
+        description=payload.description,
+        owner=current_user.sub,
+        created_at=now,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    response = ItemResponse.model_validate(item)
+    await cache_set(f"items:{item.id}", response.model_dump_json())
+    return response
+
+
 @items_router.get("/", summary="List items")
 @limiter.limit("100/minute")
 async def list_items(
@@ -101,7 +134,11 @@ async def get_item(
 ):
     cached = await cache_get(f"items:{item_id}")
     if cached:
-        return {"source": "cache", "item_id": item_id, "data": cached}
+        try:
+            data = json.loads(cached)
+        except (json.JSONDecodeError, ValueError):
+            data = cached
+        return {"source": "cache", "item_id": item_id, "data": data}
     data = f"data-for-{item_id}"
     await cache_set(f"items:{item_id}", data)
     return {"source": "db", "item_id": item_id, "data": data}
