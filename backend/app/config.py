@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # Security – override via environment variables in production
-    secret_key: str = "change-me-in-production"
+    secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
