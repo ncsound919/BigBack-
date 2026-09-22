@@ -142,8 +142,6 @@ def _app_ts(auth: bool) -> str:
         "  const app = express();",
         "  app.use(express.json());",
     ]
-    if auth:
-        lines.append('  app.use("/", (req, res, next) => { if (req.path === "/health") return next(); next(); });')
     lines += [
         "  registerRoutes(app);",
         "  return app;",
