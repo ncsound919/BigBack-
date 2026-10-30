@@ -1,7 +1,9 @@
 # ── Build ────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package.json ./
+# npm ci needs the lockfile too — copying package.json alone made every
+# image build fail with npm's usage error (exit 1).
+COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build

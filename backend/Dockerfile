@@ -15,6 +15,9 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 COPY app/ ./app/
+# app/api/generator.py does `from generator import generate, materialize` —
+# without this package in the image every boot died with ModuleNotFoundError.
+COPY generator/ ./generator/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
